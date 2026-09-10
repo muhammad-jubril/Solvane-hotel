@@ -234,4 +234,204 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   }
+
+  /* ======================================================================
+     Gold/jade page-wipe transition
+     ====================================================================== */
+  var wipe = document.getElementById('pageWipe');
+  if (wipe) {
+    if (reduceMotion) {
+      wipe.style.display = 'none';
+    } else {
+      requestAnimationFrame(function () { wipe.classList.add('wipe-reveal'); });
+      document.querySelectorAll('a[href$=".html"]').forEach(function (link) {
+        if (link.target === '_blank') return;
+        var href = link.getAttribute('href');
+        if (!href || href.indexOf('http') === 0) return;
+        link.addEventListener('click', function (e) {
+          if (href === window.location.pathname.split('/').pop()) return;
+          e.preventDefault();
+          wipe.classList.remove('wipe-reveal');
+          wipe.classList.add('wipe-cover');
+          setTimeout(function () { window.location.href = href; }, 430);
+        });
+      });
+    }
+  }
+
+  /* ======================================================================
+     Fullscreen photo lightbox — every reel slide + static gallery photo
+     + room card photo on the current page becomes browsable in one set
+     ====================================================================== */
+  var lightboxEl = document.getElementById('photoLightbox');
+  var lightboxSources = [];
+  var clickableEls = Array.prototype.slice.call(document.querySelectorAll('.reel-slide, .lightbox-trigger'));
+  clickableEls.forEach(function (el) {
+    var img = el.querySelector('img');
+    if (img) lightboxSources.push({ src: img.src, alt: img.alt });
+  });
+
+  if (lightboxEl && lightboxSources.length) {
+    var lbImg = document.getElementById('lightboxImg');
+    var lbCaption = document.getElementById('lightboxCaption');
+    var lbIndex = 0;
+
+    var openLightbox = function (i) {
+      lbIndex = i;
+      lbImg.src = lightboxSources[i].src;
+      lbImg.alt = lightboxSources[i].alt;
+      lbCaption.textContent = lightboxSources[i].alt;
+      lightboxEl.classList.add('open');
+    };
+    var closeLightbox = function () { lightboxEl.classList.remove('open'); };
+    var lbNext = function () { openLightbox((lbIndex + 1) % lightboxSources.length); };
+    var lbPrev = function () { openLightbox((lbIndex - 1 + lightboxSources.length) % lightboxSources.length); };
+
+    clickableEls.forEach(function (el, i) {
+      el.addEventListener('click', function () { openLightbox(i); });
+    });
+    document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
+    document.getElementById('lightboxNext').addEventListener('click', lbNext);
+    document.getElementById('lightboxPrev').addEventListener('click', lbPrev);
+    lightboxEl.addEventListener('click', function (e) { if (e.target === lightboxEl) closeLightbox(); });
+    document.addEventListener('keydown', function (e) {
+      if (!lightboxEl.classList.contains('open')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowRight') lbNext();
+      if (e.key === 'ArrowLeft') lbPrev();
+    });
+  }
+
+  /* ======================================================================
+     Room detail modal
+     ====================================================================== */
+  var roomModal = document.getElementById('roomModal');
+  if (roomModal) {
+    var rmImg = document.getElementById('roomModalImg');
+    var rmName = document.getElementById('roomModalName');
+    var rmPrice = document.getElementById('roomModalPrice');
+    var rmFacts = document.getElementById('roomModalFacts');
+    var rmDesc = document.getElementById('roomModalDesc');
+    var rmAmenities = document.getElementById('roomModalAmenities');
+    var rmBook = document.getElementById('roomModalBook');
+    var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    document.querySelectorAll('.room-view-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var card = btn.closest('[data-room]');
+        if (!card) return;
+        try {
+          var d = JSON.parse(card.getAttribute('data-room'));
+          rmImg.src = d.img; rmImg.alt = d.alt;
+          rmName.textContent = d.name;
+          rmPrice.innerHTML = d.price.replace('/night', '<small>/night</small>');
+          rmFacts.innerHTML = d.facts.map(function (f) { return '<span>' + f + '</span>'; }).join('');
+          rmDesc.textContent = d.desc;
+          rmAmenities.innerHTML = d.amenities.map(function (a) { return '<li>' + CHECK_SVG + a + '</li>'; }).join('');
+          rmBook.setAttribute('href', d.href);
+          roomModal.showModal();
+        } catch (err) { /* malformed data, ignore */ }
+      });
+    });
+    document.getElementById('roomModalClose').addEventListener('click', function () { roomModal.close(); });
+  }
+
+  /* ======================================================================
+     Room compare (persists across pages via localStorage)
+     ====================================================================== */
+  var COMPARE_KEY = 'solvane_compare_v1';
+  function getCompare() {
+    try { return JSON.parse(localStorage.getItem(COMPARE_KEY)) || []; }
+    catch (e) { return []; }
+  }
+  function setCompare(list) {
+    try { localStorage.setItem(COMPARE_KEY, JSON.stringify(list)); } catch (e) { /* storage unavailable */ }
+    renderCompareTray();
+    syncCompareButtons();
+  }
+  function toggleCompare(item) {
+    var list = getCompare();
+    var idx = list.findIndex(function (r) { return r.id === item.id; });
+    if (idx > -1) list.splice(idx, 1);
+    else {
+      if (list.length >= 3) list.shift();
+      list.push(item);
+    }
+    setCompare(list);
+  }
+  function syncCompareButtons() {
+    var ids = getCompare().map(function (r) { return r.id; });
+    document.querySelectorAll('.compare-btn[data-id]').forEach(function (btn) {
+      var added = ids.indexOf(btn.getAttribute('data-id')) > -1;
+      btn.classList.toggle('added', added);
+      btn.querySelector('.compare-label-default').style.display = added ? 'none' : 'inline';
+      btn.querySelector('.compare-label-added').style.display = added ? 'inline' : 'none';
+    });
+  }
+
+  var compareTray = document.getElementById('compareTray');
+  function renderCompareTray() {
+    if (!compareTray) return;
+    var list = getCompare();
+    compareTray.classList.toggle('show', list.length > 0);
+    var thumbsEl = document.getElementById('compareThumbs');
+    var infoEl = document.getElementById('compareInfo');
+    if (thumbsEl) thumbsEl.innerHTML = list.map(function (r) { return '<img src="' + r.img + '" alt="' + r.name + '">'; }).join('');
+    if (infoEl) infoEl.textContent = list.length + ' of 3 rooms selected';
+  }
+
+  document.querySelectorAll('.compare-btn[data-id]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var card = btn.closest('[data-room]');
+      if (!card) return;
+      try {
+        var d = JSON.parse(card.getAttribute('data-room'));
+        toggleCompare({
+          id: btn.getAttribute('data-id'), name: d.name, price: d.price, img: d.img,
+          facts: d.facts, href: d.href
+        });
+      } catch (err) { /* ignore */ }
+    });
+  });
+
+  var compareClearBtn = document.getElementById('compareClear');
+  if (compareClearBtn) compareClearBtn.addEventListener('click', function () { setCompare([]); });
+
+  var compareViewBtn = document.getElementById('compareViewBtn');
+  var compareModal = document.getElementById('compareModal');
+  if (compareViewBtn && compareModal) {
+    compareViewBtn.addEventListener('click', function () {
+      var list = getCompare();
+      var body = document.getElementById('compareBody');
+      var rows = [
+        { label: '', render: function (r) { return '<img src="' + r.img + '" alt="' + r.name + '"><h4>' + r.name + '</h4><span class="cmp-price">' + r.price + '</span><br><button class="compare-remove" data-remove="' + r.id + '">Remove</button>'; } },
+        { label: 'Size', render: function (r) { return r.facts[0] || '\u2014'; } },
+        { label: 'Guests', render: function (r) { return r.facts[1] || '\u2014'; } },
+        { label: 'View', render: function (r) { return r.facts[2] || '\u2014'; } },
+        { label: '', render: function (r) { return '<a href="' + r.href + '" class="btn btn-ghost" style="padding:8px 18px;font-size:.72rem;">Book This Room</a>'; } }
+      ];
+      var html = '<table class="compare-table">';
+      rows.forEach(function (row) {
+        html += '<tr><th>' + row.label + '</th>';
+        list.forEach(function (r) { html += '<td>' + row.render(r) + '</td>'; });
+        html += '</tr>';
+      });
+      html += '</table>';
+      body.innerHTML = html;
+      body.querySelectorAll('[data-remove]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var list2 = getCompare().filter(function (r) { return r.id !== btn.getAttribute('data-remove'); });
+          setCompare(list2);
+          if (list2.length === 0) compareModal.close();
+          else compareViewBtn.click();
+        });
+      });
+      compareModal.showModal();
+    });
+  }
+  var compareModalClose = document.getElementById('compareModalClose');
+  if (compareModalClose && compareModal) compareModalClose.addEventListener('click', function () { compareModal.close(); });
+
+  renderCompareTray();
+  syncCompareButtons();
 });
